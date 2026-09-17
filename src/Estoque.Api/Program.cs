@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Mvc;
 using Estoque.Api.Data;
 using Estoque.Api.Services;
 using Microsoft.EntityFrameworkCore;
@@ -30,6 +31,7 @@ app.Use(async (context, next) =>
         if (!CryptographicOperations.FixedTimeEquals(supplied, Encoding.UTF8.GetBytes(apiKey))) { context.Response.StatusCode = 401; return; }
     }
     try { await next(); }
+    catch (BadHttpRequestException e) { await Results.Problem("Formato da requisição inválido.", statusCode: e.StatusCode).ExecuteAsync(context); }
     catch (ValidationException e) { await Results.Problem(e.Message, statusCode: 400).ExecuteAsync(context); }
     catch (BusinessException e) { await Results.Problem(e.Message, statusCode: e.Status).ExecuteAsync(context); }
     catch (DbUpdateException) { await Results.Problem("Conflito ao salvar os dados.", statusCode: 409).ExecuteAsync(context); }
@@ -44,7 +46,11 @@ api.MapGet("/products", async (StockDb db, bool low = false, int page = 0) =>
 });
 api.MapPost("/products", async (NewProduct input, InventoryService service) => { var product = await service.Create(input); return Results.Created($"/api/products/{product.Id}", product); });
 api.MapPost("/products/{id:int}/receive", async (int id, StockEntry input, InventoryService service) => { await service.Receive(id, input); return Results.NoContent(); });
-api.MapPost("/orders", async (NewOrder input, InventoryService service) => { var order = await service.Sell(input); return Results.Created($"/api/orders/{order.Id}", new { order.Id, order.ProductId, order.Quantity, order.UnitPrice, order.Customer, order.CreatedAt }); });
+api.MapPost("/orders", async (NewOrder input, [FromHeader(Name = "Idempotency-Key")] Guid? requestKey, InventoryService service) =>
+{
+    var order = await service.Sell(input, requestKey);
+    return Results.Created($"/api/orders/{order.Id}", new { order.Id, order.ProductId, order.Quantity, order.UnitPrice, order.Customer, order.CreatedAt });
+});
 api.MapGet("/orders", async (StockDb db) => await db.Orders.AsNoTracking().OrderByDescending(o => o.Id).Take(50).Select(o => new { o.Id, o.ProductId, product = o.Product.Name, o.Customer, o.Quantity, o.UnitPrice, o.CreatedAt }).ToListAsync());
 api.MapGet("/movements", async (StockDb db) => await db.Movements.AsNoTracking().OrderByDescending(m => m.Id).Take(100).Select(m => new { m.Id, m.ProductId, product = m.Product.Name, m.Quantity, m.Reason, m.CreatedAt }).ToListAsync());
 using (var scope = app.Services.CreateScope())

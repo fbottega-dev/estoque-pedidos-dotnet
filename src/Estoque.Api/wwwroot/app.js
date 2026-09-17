@@ -10,10 +10,14 @@ function notice(text, error = false) {
   $("notice").textContent = text;
   $("notice").classList.toggle("error", error);
 }
-async function request(url, body) {
+async function request(url, body, requestKey) {
   const response = await fetch("/api" + url, {
     method: body ? "POST" : "GET",
-    headers: { "X-Api-Key": key, "Content-Type": "application/json" },
+    headers: {
+      "X-Api-Key": key,
+      "Content-Type": "application/json",
+      ...(requestKey ? { "Idempotency-Key": requestKey } : {}),
+    },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   if (!response.ok) {
@@ -56,12 +60,20 @@ function formAction(label, fields, fn) {
   const form = document.createElement("form");
   for (const f of fields) field(form, ...f);
   const button = el("button", label, "secondary");
+  let lastPayload = "",
+    requestKey = crypto.randomUUID();
   form.append(button);
   form.onsubmit = async (event) => {
     event.preventDefault();
     button.disabled = true;
     try {
-      await fn(Object.fromEntries(new FormData(form)));
+      const values = Object.fromEntries(new FormData(form));
+      const payload = JSON.stringify(values);
+      if (payload !== lastPayload) requestKey = crypto.randomUUID();
+      lastPayload = payload;
+      await fn(values, requestKey);
+      form.reset();
+      lastPayload = "";
       notice("Operação registrada.");
       await refresh();
     } catch (e) {
@@ -123,12 +135,16 @@ async function refresh() {
           ["Quantidade", "quantity", "number"],
           ["Cliente", "customer"],
         ],
-        (data) =>
-          request("/orders", {
-            productId: p.id,
-            quantity: Number(data.quantity),
-            customer: data.customer,
-          }),
+        (data, requestKey) =>
+          request(
+            "/orders",
+            {
+              productId: p.id,
+              quantity: Number(data.quantity),
+              customer: data.customer,
+            },
+            requestKey,
+          ),
       ),
     );
     box.append(details);

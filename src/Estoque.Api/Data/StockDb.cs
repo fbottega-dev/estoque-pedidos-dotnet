@@ -16,6 +16,9 @@ public sealed class StockDb(DbContextOptions<StockDb> options) : DbContext(optio
         model.Entity<Product>().Property(p => p.Price).HasPrecision(12, 2);
         model.Entity<Product>().ToTable(t => t.HasCheckConstraint("CK_Product_Stock", "\"Stock\" >= 0"));
         model.Entity<Order>().Property(o => o.UnitPrice).HasPrecision(12, 2);
+        model.Entity<Order>().Property(o => o.CreatedAt).HasConversion(
+            value => value, value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
+        model.Entity<Order>().HasIndex(o => o.RequestKey).IsUnique();
         model.Entity<Order>().Property(o => o.Customer).HasMaxLength(120);
         model.Entity<Order>().HasOne(o => o.Product).WithMany().HasForeignKey(o => o.ProductId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<Movement>().Property(m => m.Reason).HasMaxLength(200);
