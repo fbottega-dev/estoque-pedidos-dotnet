@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Estoque · Produtos e pedidos</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script defer src="/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <strong>Estoque / Operações</strong
+      ><small>Produtos, pedidos e rastreabilidade</small>
+    </header>
+    <main class="layout">
+      <span class="eyebrow">Gestão de inventário</span>
+      <h1>Seu estoque.<br />Cada movimento registrado.</h1>
+      <p>
+        Cadastre produtos, registre entradas e acompanhe pedidos em uma única
+        tela.
+      </p>
+      <p id="notice" role="status" aria-live="polite"></p>
+      <form id="access" class="card">
+        <h2>Conectar ao estoque</h2>
+        <label for="key">Chave de acesso da instalação</label
+        ><input
+          id="key"
+          name="key"
+          type="password"
+          required
+          minlength="16"
+          autocomplete="off"
+        />
+        <p class="muted">
+          Use o valor de API_KEY configurado ao iniciar a aplicação. A chave
+          permanece somente na memória desta página.
+        </p>
+        <button>Conectar</button>
+      </form>
+      <section id="workspace" hidden>
+        <div class="row">
+          <h2>Área de operações</h2>
+          <button id="disconnect" class="secondary">Desconectar</button>
+        </div>
+        <div class="grid">
+          <form id="product" class="card">
+            <h2>Novo produto</h2>
+            <label for="sku">SKU</label
+            ><input
+              id="sku"
+              name="sku"
+              minlength="2"
+              maxlength="40"
+              required
+            /><label for="name">Nome</label
+            ><input id="name" name="name" maxlength="120" required /><label
+              for="supplier"
+              >Fornecedor</label
+            ><input
+              id="supplier"
+              name="supplier"
+              maxlength="120"
+              required
+            /><label for="price">Preço unitário (R$)</label
+            ><input
+              id="price"
+              name="price"
+              type="number"
+              min="0.01"
+              step="0.01"
+              required
+            /><label for="minimumStock">Estoque mínimo</label
+            ><input
+              id="minimumStock"
+              name="minimumStock"
+              type="number"
+              min="0"
+              max="1000000"
+              value="5"
+              required
+            /><button>Cadastrar produto</button>
+          </form>
+          <section class="card">
+            <h2>Produtos disponíveis</h2>
+            <label for="low">Visualização</label
+            ><select id="low">
+              <option value="false">Todos os produtos</option>
+              <option value="true">Abaixo do estoque mínimo</option>
+            </select>
+            <div id="products"></div>
+            <div class="row">
+              <button id="prev" class="secondary">Anterior</button
+              ><span id="page" class="muted"></span
+              ><button id="next" class="secondary">Próxima</button>
+            </div>
+          </section>
+        </div>
+        <div class="grid">
+          <section class="card">
+            <h2>Últimos 50 pedidos</h2>
+            <div id="orders"></div>
+          </section>
+          <section class="card">
+            <h2>Últimas 100 movimentações</h2>
+            <div id="movements"></div>
+          </section>
+        </div>
+      </section>
+      <footer>
+        C# · ASP.NET Core · Entity Framework · PostgreSQL<br />Instalação local
+        de demonstração. Acesso por chave única de operador.
+      </footer>
+    </main>
+  </body>
+</html>
