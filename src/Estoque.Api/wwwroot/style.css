@@ -122,6 +122,10 @@ a:focus-visible {
   font-size: 12px;
   color: #17614d;
 }
+.badge.cancelled {
+  background: #f4e7e8;
+  color: #8b3038;
+}
 .row {
   display: flex;
   gap: 14px;
@@ -141,6 +145,7 @@ a:focus-visible {
   display: none !important;
 }
 .ticket {
+  overflow-wrap: anywhere;
   padding: 20px 0;
   border-bottom: 1px solid #e2e9ec;
 }

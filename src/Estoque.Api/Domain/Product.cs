@@ -20,6 +20,8 @@ public sealed class Order
     public decimal UnitPrice { get; set; }
     public string Customer { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? CancelledAt { get; set; }
+    public string? CancellationReason { get; set; }
 }
 public sealed class Movement
 {

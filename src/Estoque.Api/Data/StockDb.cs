@@ -19,6 +19,9 @@ public sealed class StockDb(DbContextOptions<StockDb> options) : DbContext(optio
         model.Entity<Order>().Property(o => o.CreatedAt).HasConversion(
             value => value, value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
         model.Entity<Order>().HasIndex(o => o.RequestKey).IsUnique();
+        model.Entity<Order>().Property(o => o.CancelledAt).HasConversion(
+            value => value, value => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : value);
+        model.Entity<Order>().Property(o => o.CancellationReason).HasMaxLength(160);
         model.Entity<Order>().Property(o => o.Customer).HasMaxLength(120);
         model.Entity<Order>().HasOne(o => o.Product).WithMany().HasForeignKey(o => o.ProductId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<Movement>().Property(m => m.Reason).HasMaxLength(200);

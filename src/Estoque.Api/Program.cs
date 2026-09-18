@@ -49,9 +49,14 @@ api.MapPost("/products/{id:int}/receive", async (int id, StockEntry input, Inven
 api.MapPost("/orders", async (NewOrder input, [FromHeader(Name = "Idempotency-Key")] Guid? requestKey, InventoryService service) =>
 {
     var order = await service.Sell(input, requestKey);
-    return Results.Created($"/api/orders/{order.Id}", new { order.Id, order.ProductId, order.Quantity, order.UnitPrice, order.Customer, order.CreatedAt });
+    return Results.Created($"/api/orders/{order.Id}", new { order.Id, order.ProductId, order.Quantity, order.UnitPrice, order.Customer, order.CreatedAt, order.CancelledAt, order.CancellationReason });
 });
-api.MapGet("/orders", async (StockDb db) => await db.Orders.AsNoTracking().OrderByDescending(o => o.Id).Take(50).Select(o => new { o.Id, o.ProductId, product = o.Product.Name, o.Customer, o.Quantity, o.UnitPrice, o.CreatedAt }).ToListAsync());
+api.MapPost("/orders/{id:int}/cancel", async (int id, CancelOrder input, InventoryService service) =>
+{
+    var order = await service.Cancel(id, input);
+    return Results.Ok(new { order.Id, order.ProductId, order.Quantity, order.UnitPrice, order.Customer, order.CreatedAt, order.CancelledAt, order.CancellationReason });
+});
+api.MapGet("/orders", async (StockDb db) => await db.Orders.AsNoTracking().OrderByDescending(o => o.Id).Take(50).Select(o => new { o.Id, o.ProductId, product = o.Product.Name, o.Customer, o.Quantity, o.UnitPrice, o.CreatedAt, o.CancelledAt, o.CancellationReason }).ToListAsync());
 api.MapGet("/movements", async (StockDb db) => await db.Movements.AsNoTracking().OrderByDescending(m => m.Id).Take(100).Select(m => new { m.Id, m.ProductId, product = m.Product.Name, m.Quantity, m.Reason, m.CreatedAt }).ToListAsync());
 using (var scope = app.Services.CreateScope())
 {

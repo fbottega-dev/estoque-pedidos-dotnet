@@ -10,6 +10,7 @@ public record NewProduct([property: Required, StringLength(40, MinimumLength = 2
 public record NewOrder([property: Range(1, int.MaxValue)] int ProductId, [property: Range(1, 1000000)] int Quantity,
     [property: Required, StringLength(120)] string Customer);
 public record StockEntry([property: Range(1, 1000000)] int Quantity, [property: Required, StringLength(200)] string Reason);
+public record CancelOrder([property: Required, StringLength(160)] string Reason);
 public sealed class BusinessException(string message, int status = 409) : Exception(message)
 {
     public int Status { get; } = status;
@@ -79,6 +80,34 @@ public sealed class InventoryService(StockDb db)
             if (replay is not null) return replay;
             throw;
         }
+    }
+
+    public async Task<Order> Cancel(int id, CancelOrder input)
+    {
+        Validate(input);
+        await using var tx = await db.Database.BeginTransactionAsync();
+        var now = DateTime.UtcNow;
+        // Só a primeira requisição marca o cancelamento e devolve o saldo.
+        var changed = await db.Orders.Where(o => o.Id == id && o.CancelledAt == null)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(o => o.CancelledAt, now)
+                .SetProperty(o => o.CancellationReason, input.Reason.Trim()));
+        var order = await db.Orders.AsNoTracking().SingleOrDefaultAsync(o => o.Id == id)
+            ?? throw new BusinessException("Pedido não encontrado.", 404);
+        if (changed == 0) return order;
+
+        var restored = await db.Products.Where(p => p.Id == order.ProductId && p.Stock <= 1000000 - order.Quantity)
+            .ExecuteUpdateAsync(update => update.SetProperty(p => p.Stock, p => p.Stock + order.Quantity));
+        if (restored == 0) throw new BusinessException("O estorno ultrapassaria o limite de estoque do produto.");
+        db.Movements.Add(new Movement
+        {
+            ProductId = order.ProductId,
+            Quantity = order.Quantity,
+            Reason = $"Estorno do pedido #{order.Id}: {order.CancellationReason}"
+        });
+        await db.SaveChangesAsync();
+        await tx.CommitAsync();
+        return order;
     }
 
     private async Task<Order?> FindPreviousOrder(NewOrder input, Guid? requestKey)

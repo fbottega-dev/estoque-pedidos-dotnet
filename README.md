@@ -15,6 +15,7 @@ Sistema de inventário com cadastro de produtos, entradas, pedidos e histórico 
 - Pedido de um produto por vez; preço histórico registrado na venda.
 - Atualização condicional do saldo, pedido e movimentação na mesma transação.
 - Repetição segura de pedidos com o header Idempotency-Key; o mesmo envio não baixa o estoque duas vezes.
+- Cancelamento com motivo obrigatório, devolução do estoque e histórico de estorno.
 - Filtro de reposição, paginação de produtos, últimos 50 pedidos e 100 movimentos.
 - API protegida por chave de operador e limite global de 120 chamadas/minuto.
 
@@ -55,7 +56,7 @@ SQLite é uma alternativa para demonstração e testes. O schema desse modo é c
 dotnet test
 ```
 
-11 testes cobrem autenticação, validação, saldo, movimentação, concorrência e pedidos repetidos em SQLite. O Actions também sobe PostgreSQL via Compose e testa a última unidade e a repetição do mesmo pedido com **requisições HTTP simultâneas**.
+20 testes cobrem autenticação, validação, saldo, movimentação, concorrência, pedidos repetidos e cancelamento em SQLite. O Actions também sobe PostgreSQL via Compose e testa a última unidade, a repetição do mesmo pedido e o cancelamento com **requisições HTTP simultâneas**.
 
 Para esse teste isolado, use um banco Compose vazio e Node.js 22: `API_KEY=<sua-chave> node scripts/smoke.mjs`. No PowerShell defina $env:API_KEY antes. O teste insere dados fictícios e espera banco vazio.
 
@@ -69,6 +70,7 @@ Todas as rotas abaixo exigem o header `X-Api-Key`.
 | POST | /api/products | sku, name, supplier, minimumStock, price |
 | POST | /api/products/{id}/receive | quantity, reason |
 | POST | /api/orders | productId, quantity, customer |
+| POST | /api/orders/{id}/cancel | reason (até 160 caracteres) |
 | GET | /api/orders | últimos 50 pedidos |
 | GET | /api/movements | últimas 100 movimentações |
 
@@ -76,11 +78,11 @@ Todas as rotas abaixo exigem o header `X-Api-Key`.
 {"sku":"TEC-001","name":"Teclado","supplier":"Fornecedor exemplo","minimumStock":5,"price":149.90}
 ```
 
-Entradas inválidas retornam 400; conflito ou saldo insuficiente, 409; chave inválida, 401. Produtos iniciam com saldo zero: registre uma entrada antes de vender.
+Entradas inválidas retornam 400; conflito ou saldo insuficiente, 409; chave inválida, 401; pedido inexistente no cancelamento, 404. Produtos iniciam com saldo zero: registre uma entrada antes de vender.
 
 ### Evitar pedidos duplicados
 
-Envie `Idempotency-Key` com um UUID novo para cada pedido. Se a conexão cair, repita o mesmo corpo e a mesma chave. O servidor retorna o pedido original (201, mesmo ID e dados), mesmo que o estoque já tenha acabado. Usar a chave com outros dados retorna 409. Uma tentativa recusada por falta de estoque não reserva a chave.
+Envie `Idempotency-Key` com um UUID novo para cada pedido. Se a conexão cair, repita o mesmo corpo e a mesma chave. O servidor retorna o pedido original (201, mesmo ID e dados da venda), mesmo que o estoque já tenha acabado. Os campos `cancelledAt` e `cancellationReason` informam o estado atual: repetir a chave de um pedido cancelado não cria outra venda. Usar a chave com outros dados retorna 409. Uma tentativa recusada por falta de estoque não reserva a chave.
 
 ```http
 POST /api/orders
@@ -93,7 +95,23 @@ Content-Type: application/json
 
 A interface envia a chave e a mantém enquanto você repete a tentativa sem alterar os campos. A chave fica na memória da página; recarregar ou sair perde essa referência. Chamadas sem esse header continuam compatíveis, mas criam um pedido novo a cada envio. As chaves salvas não expiram nesta versão e são compartilhadas pela instalação, que possui um único operador.
 
-O PostgreSQL recebe uma migration que preserva pedidos antigos. No modo SQLite, quem já tinha `stock.db` da versão anterior deve apontar para um arquivo novo (por exemplo, `Data Source=stock-v2.db`) ou migrar o schema antes de usar a nova coluna; não apague dados reais para atualizar.
+O PostgreSQL recebe migrations que preservam pedidos antigos. No modo SQLite, quem já tinha `stock.db` da versão anterior deve apontar para um arquivo novo (por exemplo, `Data Source=stock-v3.db`) ou migrar o schema antes de usar as novas colunas; não apague dados reais para atualizar.
+
+### Cancelar um pedido
+
+Na lista de pedidos, abra **Cancelar pedido**, preencha o motivo e confirme. O pedido permanece no histórico, marcado como cancelado, e as unidades voltam ao estoque. O histórico de movimentações registra o número do pedido e o motivo do estorno.
+
+```http
+POST /api/orders/1/cancel
+X-Api-Key: <chave da instalação>
+Content-Type: application/json
+
+{"reason":"Cliente desistiu da compra"}
+```
+
+O retorno é 200 com o pedido, `cancelledAt` e `cancellationReason`. Repetir o cancelamento, inclusive em chamadas simultâneas, devolve o resultado já salvo sem devolver o estoque novamente. O primeiro motivo e a primeira data são mantidos; toda chamada exige um motivo válido. Não é necessário enviar `Idempotency-Key` nessa rota.
+
+Cancelamento, saldo e movimento são gravados na mesma transação. Se a devolução ultrapassar o limite de 1.000.000 de unidades por produto, a API retorna 409 e mantém o pedido ativo, sem alterar saldo ou histórico. O cancelamento é integral; para refazer a compra, crie outro pedido com uma chave nova.
 
 ## Por que a venda é atômica?
 
@@ -112,7 +130,7 @@ Domain contém entidades; Services reúne regras e transações; Data contém Db
 - Chave única de operador, sem contas individuais ou permissões por usuário.
 - Cada pedido contém um produto; carrinho com múltiplos itens é uma próxima entrega.
 - Fornecedor e cliente são campos textuais, sem cadastro separado.
-- Não há cancelamento, devolução ou reservas. A proteção contra pedidos repetidos exige o header Idempotency-Key.
+- Não há devolução parcial, reativação de pedido cancelado ou reservas. A proteção contra vendas repetidas exige o header Idempotency-Key.
 - Docker e servidor local destinam-se à demonstração; para acesso público, configurar HTTPS, gestão de segredos e autenticação individual.
 
 [Uso de IA e revisão](docs/AI_USAGE.md) · [Próximas entregas](docs/ROADMAP.md)

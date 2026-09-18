@@ -107,3 +107,94 @@ for (const initialStock of [1, 5]) {
 console.log(
     "PostgreSQL idempotency: simultaneous retries and conflicting payloads passed",
 );
+
+const cancellationProductResponse = await request("/products", {
+    sku: "CANCEL-" + Date.now(),
+    name: "Pedido cancelado",
+    supplier: "Teste",
+    minimumStock: 1,
+    price: 19.9,
+});
+assert.equal(cancellationProductResponse.status, 201);
+const cancellationProduct = await cancellationProductResponse.json();
+assert.equal(
+    (
+        await request("/products/" + cancellationProduct.id + "/receive", {
+            quantity: 5,
+            reason: "Entrada",
+        })
+    ).status,
+    204,
+);
+const cancellationKey = crypto.randomUUID();
+const cancellationSaleBody = {
+    productId: cancellationProduct.id,
+    quantity: 3,
+    customer: "Cliente do cancelamento",
+};
+const cancellationSaleResponse = await request(
+    "/orders",
+    cancellationSaleBody,
+    cancellationKey,
+);
+assert.equal(cancellationSaleResponse.status, 201);
+const cancellationSale = await cancellationSaleResponse.json();
+assert.equal(cancellationSale.cancelledAt, null);
+const cancellationReasons = ["Cliente desistiu", "Pedido feito por engano"];
+const cancellationResponses = await Promise.all(
+    cancellationReasons.map((reason) =>
+        request("/orders/" + cancellationSale.id + "/cancel", { reason }),
+    ),
+);
+assert.deepEqual(
+    cancellationResponses.map((response) => response.status),
+    [200, 200],
+);
+const [cancelled, cancelledRetry] = await Promise.all(
+    cancellationResponses.map((response) => response.json()),
+);
+assert.deepEqual(cancelled, cancelledRetry);
+assert.equal(cancelled.id, cancellationSale.id);
+assert.ok(cancelled.cancelledAt);
+assert.ok(cancellationReasons.includes(cancelled.cancellationReason));
+const laterCancellationResponse = await request(
+    "/orders/" + cancellationSale.id + "/cancel",
+    { reason: "Terceira tentativa" },
+);
+assert.equal(laterCancellationResponse.status, 200);
+assert.deepEqual(await laterCancellationResponse.json(), cancelled);
+const cancelledSaleReplay = await request(
+    "/orders",
+    cancellationSaleBody,
+    cancellationKey,
+);
+assert.equal(cancelledSaleReplay.status, 201);
+assert.deepEqual(await cancelledSaleReplay.json(), cancelled);
+const cancellationInventory = await (await request("/products")).json();
+assert.equal(
+    cancellationInventory.items.find(
+        (item) => item.id === cancellationProduct.id,
+    ).stock,
+    5,
+);
+const cancellationOrders = (await (await request("/orders")).json()).filter(
+    (item) => item.productId === cancellationProduct.id,
+);
+assert.equal(cancellationOrders.length, 1);
+assert.equal(cancellationOrders[0].cancelledAt, cancelled.cancelledAt);
+assert.equal(
+    cancellationOrders[0].cancellationReason,
+    cancelled.cancellationReason,
+);
+const cancellationMovements = (
+    await (await request("/movements")).json()
+).filter((item) => item.productId === cancellationProduct.id);
+assert.deepEqual(
+    cancellationMovements
+        .sort((a, b) => a.id - b.id)
+        .map((item) => item.quantity),
+    [5, -3, 3],
+);
+console.log(
+    "PostgreSQL cancellation: concurrent requests restore stock once and preserve the first reason",
+);

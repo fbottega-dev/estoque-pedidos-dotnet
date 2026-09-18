@@ -40,7 +40,7 @@ function el(tag, text, cls) {
   if (cls) node.className = cls;
   return node;
 }
-function field(form, label, name, type = "text") {
+function field(form, label, name, type = "text", maxLength = 120) {
   const id = "f-" + Math.random().toString(36).slice(2),
     input = document.createElement("input"),
     l = el("label", label);
@@ -53,10 +53,15 @@ function field(form, label, name, type = "text") {
     input.min = 1;
     input.max = 1000000;
     input.step = 1;
-  } else input.maxLength = 120;
+  } else input.maxLength = maxLength;
   form.append(l, input);
 }
-function formAction(label, fields, fn) {
+function formAction(
+  label,
+  fields,
+  fn,
+  successMessage = "Operação registrada.",
+) {
   const form = document.createElement("form");
   for (const f of fields) field(form, ...f);
   const button = el("button", label, "secondary");
@@ -74,7 +79,7 @@ function formAction(label, fields, fn) {
       await fn(values, requestKey);
       form.reset();
       lastPayload = "";
-      notice("Operação registrada.");
+      notice(successMessage);
       await refresh();
     } catch (e) {
       notice(e.message, true);
@@ -165,6 +170,36 @@ async function refresh() {
           money.format(o.unitPrice * o.quantity),
       ),
     );
+    if (o.cancelledAt) {
+      row.append(
+        el("span", "Cancelado", "badge cancelled"),
+        el("p", o.cancellationReason),
+        el(
+          "p",
+          "Estoque devolvido em " +
+            new Date(o.cancelledAt).toLocaleString("pt-BR"),
+          "muted",
+        ),
+      );
+    } else {
+      const details = document.createElement("details");
+      details.append(
+        el("summary", "Cancelar pedido"),
+        el(
+          "p",
+          "O cancelamento devolve as unidades ao estoque e mantém o pedido no histórico.",
+          "muted",
+        ),
+        formAction(
+          "Confirmar cancelamento",
+          [["Motivo do cancelamento", "reason", "text", 160]],
+          (data) =>
+            request("/orders/" + o.id + "/cancel", { reason: data.reason }),
+          "Pedido cancelado. Estoque devolvido.",
+        ),
+      );
+      row.append(details);
+    }
     $("orders").append(row);
   }
   $("movements").replaceChildren();
